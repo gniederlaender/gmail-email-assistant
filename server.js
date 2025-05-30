@@ -228,8 +228,8 @@ async function checkNewEmails() {
       const subject = headers.find(h => h.name === 'Subject')?.value || '';
       const from = headers.find(h => h.name === 'From')?.value || '';
       
-      // Only process emails from specific sender
-      if (!from.includes('gabor.niederlaender@erstebank.at')) {
+      // Only process emails from specific sender (case-insensitive)
+      if (!from.toLowerCase().includes('gabor.niederlaender@erstebank.at')) {
         console.log(`Skipping email from: ${from} - not from authorized sender`);
         continue;
       }
