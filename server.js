@@ -231,6 +231,17 @@ async function checkNewEmails() {
       // Only process emails from specific sender (case-insensitive)
       if (!from.toLowerCase().includes('gabor.niederlaender@erstebank.at')) {
         console.log(`Skipping email from: ${from} - not from authorized sender`);
+        
+        // Mark as read even if skipped
+        await gmail.users.messages.modify({
+          auth: oauth2Client,
+          userId: 'me',
+          id: message.id,
+          requestBody: {
+            removeLabelIds: ['UNREAD']
+          }
+        });
+        
         continue;
       }
       
