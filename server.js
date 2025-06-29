@@ -57,22 +57,47 @@ function parseForwardedEmail(emailBody) {
   let originalSubject = '';
   let instructions = '';
   
-  // Step 1: Extract instructions (anything before the first "Von:" or "From:")
-  const vonMatch = emailBody.match(/Von:/);
-  const fromMatch = emailBody.match(/From:/);
+  // Step 1: Extract instructions (anything before the forwarded content markers)
+  const forwardedMarkers = [
+    /Gesendet von Outlook für iOS/,
+    /---------- Weitergeleitete Nachricht ----------/,
+    /-----Ursprüngliche Nachricht-----/
+  ];
   
   let instructionEndIndex = emailBody.length;
-  if (vonMatch && vonMatch.index !== undefined) {
-    instructionEndIndex = Math.min(instructionEndIndex, vonMatch.index);
-  }
-  if (fromMatch && fromMatch.index !== undefined) {
-    instructionEndIndex = Math.min(instructionEndIndex, fromMatch.index);
+  let foundMarker = false;
+  for (const marker of forwardedMarkers) {
+    const match = emailBody.match(marker);
+    if (match && match.index !== undefined) {
+      instructionEndIndex = Math.min(instructionEndIndex, match.index);
+      foundMarker = true;
+    }
   }
   
-  if (instructionEndIndex < emailBody.length) {
+  if (foundMarker && instructionEndIndex < emailBody.length) {
     instructions = emailBody.substring(0, instructionEndIndex).trim();
-    console.log('\n=== Found Instructions ===');
+    // Clean up instructions - remove email headers
+    instructions = instructions.replace(/Von:.*?Betreff:.*?\n/s, '').trim();
+    console.log('\n=== Found Instructions (with marker) ===');
     console.log(instructions);
+  } else {
+    // Fallback: no marker found, get everything before first 'Von:' or 'From:'
+    const vonMatch = emailBody.match(/Von:/);
+    const fromMatch = emailBody.match(/From:/);
+    let fallbackEnd = emailBody.length;
+    if (vonMatch && vonMatch.index !== undefined) fallbackEnd = Math.min(fallbackEnd, vonMatch.index);
+    if (fromMatch && fromMatch.index !== undefined) fallbackEnd = Math.min(fallbackEnd, fromMatch.index);
+    if (fallbackEnd > 0) {
+      // Get non-empty lines before fallbackEnd
+      const before = emailBody.substring(0, fallbackEnd).split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+      // Remove lines that look like headers
+      const filtered = before.filter(l => !/^Von:|^From:|^Gesendet:|^An:|^Betreff:/i.test(l));
+      instructions = filtered.join(' ').trim();
+      if (instructions) {
+        console.log('\n=== Found Instructions (fallback) ===');
+        console.log(instructions);
+      }
+    }
   }
   
   // Step 2: Extract the forwarded email content
