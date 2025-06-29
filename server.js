@@ -46,84 +46,101 @@ const transporter = nodemailer.createTransport({
 // Store processed email IDs to avoid duplicates
 const processedEmails = new Set();
 
-// Email parsing function
+// Email parsing function - simplified and improved
 function parseForwardedEmail(emailBody) {
   console.log('\n=== Original Email ===');
-  console.log(emailBody);
+  console.log(emailBody.substring(0, 500) + '...');
   console.log('\n=== Starting Parsing ===');
 
-  // Common patterns for forwarded emails in German
-  const forwardPatterns = [
-    /Gesendet von Outlook für iOS/,  // Updated to match the full line including URL
-    /Von:.*?Gesendet:.*?Betreff:/s,
-    /---------- Weitergeleitete Nachricht ----------/,
-    /-----Ursprüngliche Nachricht-----/
-  ];
-  
   let originalContent = emailBody;
   let originalSender = '';
   let originalSubject = '';
   let instructions = '';
   
-  // Extract subject from German format first
-  const subjectMatch = emailBody.match(/Betreff:\s*([^\n]+)/);
-  if (subjectMatch) {
-    originalSubject = subjectMatch[1].trim();
-    console.log('\n=== Extracted Subject ===');
-    console.log(originalSubject);
-  } else {
-    console.log('\n=== Subject Pattern Not Found ===');
-    console.log('Looking for pattern: Betreff:');
-    console.log('In content:', emailBody);
+  // Step 1: Extract instructions (anything before the first "Von:" or "From:")
+  const vonMatch = emailBody.match(/Von:/);
+  const fromMatch = emailBody.match(/From:/);
+  
+  let instructionEndIndex = emailBody.length;
+  if (vonMatch && vonMatch.index !== undefined) {
+    instructionEndIndex = Math.min(instructionEndIndex, vonMatch.index);
+  }
+  if (fromMatch && fromMatch.index !== undefined) {
+    instructionEndIndex = Math.min(instructionEndIndex, fromMatch.index);
   }
   
-    // Extract sender from German format
-  const senderMatch = emailBody.match(/Von:\s*(.+?)(?:\n|<)/);
+  if (instructionEndIndex < emailBody.length) {
+    instructions = emailBody.substring(0, instructionEndIndex).trim();
+    console.log('\n=== Found Instructions ===');
+    console.log(instructions);
+  }
+  
+  // Step 2: Extract the forwarded email content
+  const forwardedStartPatterns = [
+    /Gesendet von Outlook für iOS/,
+    /Von:.*?Gesendet:.*?Betreff:/s,
+    /---------- Weitergeleitete Nachricht ----------/,
+    /-----Ursprüngliche Nachricht-----/,
+    /Von:/,
+    /From:/
+  ];
+  
+  let forwardedContent = emailBody;
+  for (const pattern of forwardedStartPatterns) {
+    const match = emailBody.match(pattern);
+    if (match && match.index !== undefined) {
+      const startIndex = match.index;
+      if (startIndex > 0) {
+        forwardedContent = emailBody.substring(startIndex);
+        console.log('\n=== Found Forwarded Content Start ===');
+        console.log('Pattern matched:', pattern);
+        break;
+      }
+    }
+  }
+  
+  // Step 3: Extract sender and subject
+  const senderMatch = forwardedContent.match(/Von:\s*(.+?)(?:\n|$)/);
   if (senderMatch) {
     originalSender = senderMatch[1].trim();
     console.log('\n=== Extracted Sender ===');
     console.log(originalSender);
   }
   
-  // Try to extract forwarded content and instructions
-  for (const pattern of forwardPatterns) {
-    const match = emailBody.match(pattern);
-    if (match) {
-      console.log('\n=== Matched Forward Pattern ===');
-      console.log(pattern);
-      const parts = emailBody.split(pattern);
-      if (parts.length > 1) {
-        // Check if there's any content before the forward marker
-        const beforeForward = parts[0].trim();
-        if (beforeForward) {
-          instructions = beforeForward;
-          console.log('\n=== Found Instructions ===');
-          console.log(instructions);
-        }
-        originalContent = parts[1]; // Take the part after the forward marker
-        console.log('\n=== Content After Forward Marker ===');
-        console.log(originalContent);
-        break;
-      }
-    }
+  const subjectMatch = forwardedContent.match(/Betreff:\s*([^\n]+)/);
+  if (subjectMatch) {
+    originalSubject = subjectMatch[1].trim();
+    console.log('\n=== Extracted Subject ===');
+    console.log(originalSubject);
   }
   
+  // Step 4: Extract the main email body content
+  const contentStartMatch = forwardedContent.match(/Betreff:\s*[^\n]+\n/);
+  if (contentStartMatch) {
+    const startIndex = contentStartMatch.index + contentStartMatch[0].length;
+    originalContent = forwardedContent.substring(startIndex).trim();
+    
+    // Clean up signature
+    const signatureMatch = originalContent.match(/Dr\s+[^\n]+\nErste Bank.*$/s);
+    if (signatureMatch) {
+      originalContent = originalContent.substring(0, signatureMatch.index).trim();
+    }
+    
+    console.log('\n=== Extracted Content ===');
+    console.log(originalContent.substring(0, 300) + '...');
+  }
   
-  // Clean up the content (remove headers and Microsoft Teams info)
-  // originalContent = originalContent
-  //  .replace(/Microsoft Teams.*$/s, '') // Remove Microsoft Teams section
-  //  .replace(/_{3,}.*$/s, '') // Remove separator lines (3 or more underscores)
-  //  .replace(/Von:.*?Betreff:.*?\n\n/s, '') // Remove German email headers
-  //  .trim();
-  
-  console.log('\n=== Final Cleaned Content ===');
-  console.log(originalContent);
+  console.log('\n=== Parsing Summary ===');
+  console.log('Instructions:', instructions);
+  console.log('Sender:', originalSender);
+  console.log('Subject:', originalSubject);
+  console.log('Content length:', originalContent.length);
   
   return {
     originalSender,
     originalSubject,
     originalContent: originalContent,
-    instructions: instructions.trim(),
+    instructions: instructions,
     fullForwardedEmail: emailBody
   };
 }
