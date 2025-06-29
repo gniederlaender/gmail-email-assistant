@@ -174,14 +174,25 @@ function parseForwardedEmail(emailBody) {
 function detectTask(instructions) {
   const lowerInstructions = instructions.toLowerCase();
   
-  if (lowerInstructions.includes('summarize') || lowerInstructions.includes('summary')) {
+  if (lowerInstructions.includes('summarize') || lowerInstructions.includes('summary') || 
+      lowerInstructions.includes('zusammenfassen') || lowerInstructions.includes('zusammen') ||
+      lowerInstructions.includes('kurzfassung') || lowerInstructions.includes('resümee')) {
     return 'summarize';
-  } else if (lowerInstructions.includes('todo') || lowerInstructions.includes('task') || lowerInstructions.includes('action')) {
+  } else if (lowerInstructions.includes('todo') || lowerInstructions.includes('task') || lowerInstructions.includes('action') ||
+             lowerInstructions.includes('aufgabe') || lowerInstructions.includes('to-do') || lowerInstructions.includes('tätigkeit') ||
+             lowerInstructions.includes('maßnahme') || lowerInstructions.includes('aktion')) {
     return 'todos';
-  } else if (lowerInstructions.includes('analyze') || lowerInstructions.includes('analysis')) {
+  } else if (lowerInstructions.includes('analyze') || lowerInstructions.includes('analysis') ||
+             lowerInstructions.includes('analysiere') || lowerInstructions.includes('analyse') ||
+             lowerInstructions.includes('bewerten') || lowerInstructions.includes('beurteilen')) {
     return 'analyze';
-  } else if (lowerInstructions.includes('translate') || lowerInstructions.includes('translation')) {
+  } else if (lowerInstructions.includes('translate') || lowerInstructions.includes('translation') ||
+             lowerInstructions.includes('übersetze') || lowerInstructions.includes('übersetzung') ||
+             lowerInstructions.includes('übertragen')) {
     return 'translate';
+  } else if (lowerInstructions.includes('write') || lowerInstructions.includes('schreibe') ||
+             lowerInstructions.includes('verfasse') || lowerInstructions.includes('erstelle')) {
+    return 'write';
   } else {
     return 'respond'; // Default task
   }
@@ -267,6 +278,26 @@ Please provide a translation that:
 
 Translation:`,
 
+  write: `Please write a new business email based on the following instructions:
+
+{additionalInstructions}
+
+Context from forwarded email (if any):
+From: {sender}
+Subject: {subject}
+Content: {content}
+
+Please create a professional email that:
+1. Follows the specific instructions provided above
+2. Uses appropriate business language and tone
+3. Includes proper greetings and closing
+4. Is well-structured and professional
+5. Sign with Gabor
+6. In case the instructions are in another language, please write the email in the same language
+7. Include a clear subject line if specified in the instructions
+
+New Email:`,
+
   respond: `I received the following business email and need to generate a professional response:
 
 From: {sender}
@@ -343,6 +374,7 @@ async function sendResponse(to, subject, body, originalEmailId, task = 'respond'
       todos: 'Action Items:',
       analyze: 'Analysis:',
       translate: 'Translation:',
+      write: 'New Email:',
       respond: 'Re:'
     };
     
@@ -355,6 +387,7 @@ async function sendResponse(to, subject, body, originalEmailId, task = 'respond'
       todos: 'Action Items & Tasks',
       analyze: 'Business Analysis',
       translate: 'Email Translation',
+      write: 'New Email Draft',
       respond: 'AI Generated Response'
     };
     
