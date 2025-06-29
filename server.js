@@ -27,9 +27,9 @@ oauth2Client.setCredentials({
 
 // Nodemailer setup for sending emails
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT, 10),
+  secure: process.env.SMTP_SECURE === 'true',
   auth: {
     type: 'OAuth2',
     user: process.env.GMAIL_ADDRESS,
@@ -84,7 +84,7 @@ function parseForwardedEmail(emailBody) {
     console.log('\n=== Extracted Sender ===');
     console.log(originalSender);
   }
-
+  
   // Try to extract forwarded content and instructions
   for (const pattern of forwardPatterns) {
     const match = emailBody.match(pattern);
@@ -128,16 +128,112 @@ function parseForwardedEmail(emailBody) {
   };
 }
 
-// Generate AI response
-async function generateResponse(emailContent, sender, subject, instructions) {
-  try {
-    const prompt = `I received the following business email and need to generate a professional response:
+// Task detection function
+function detectTask(instructions) {
+  const lowerInstructions = instructions.toLowerCase();
+  
+  if (lowerInstructions.includes('summarize') || lowerInstructions.includes('summary')) {
+    return 'summarize';
+  } else if (lowerInstructions.includes('todo') || lowerInstructions.includes('task') || lowerInstructions.includes('action')) {
+    return 'todos';
+  } else if (lowerInstructions.includes('analyze') || lowerInstructions.includes('analysis')) {
+    return 'analyze';
+  } else if (lowerInstructions.includes('translate') || lowerInstructions.includes('translation')) {
+    return 'translate';
+  } else {
+    return 'respond'; // Default task
+  }
+}
 
-From: ${sender}
-Subject: ${subject}
+// Prompt templates for different tasks
+const promptTemplates = {
+  summarize: `Please provide a concise summary of the following business email:
 
-${instructions ? `Instructions for response:\n${instructions}\n\n` : ''}Email Content:
-${emailContent}
+From: {sender}
+Subject: {subject}
+
+Email Content:
+{content}
+
+{additionalInstructions}
+
+Please create a summary that:
+1. Captures the main points and key information
+2. Identifies any action items or deadlines
+3. Highlights important details
+4. Is professional and well-structured
+5. Sign with Gabor
+
+Summary:`,
+
+  todos: `Please extract and organize action items from the following business email:
+
+From: {sender}
+Subject: {subject}
+
+Email Content:
+{content}
+
+{additionalInstructions}
+
+Please create a task list that:
+1. Identifies all action items and tasks mentioned
+2. Prioritizes tasks by urgency/importance
+3. Includes any deadlines or timeframes
+4. Clarifies who is responsible for each task
+5. Adds any missing context or requirements
+6. Sign with Gabor
+
+Task List:`,
+
+  analyze: `Please provide a detailed analysis of the following business email:
+
+From: {sender}
+Subject: {subject}
+
+Email Content:
+{content}
+
+{additionalInstructions}
+
+Please provide an analysis that:
+1. Identifies the main business objectives
+2. Assesses potential risks or concerns
+3. Suggests strategic considerations
+4. Evaluates the impact on business operations
+5. Provides recommendations if applicable
+6. Sign with Gabor
+
+Analysis:`,
+
+  translate: `Please translate the following business email:
+
+From: {sender}
+Subject: {subject}
+
+Email Content:
+{content}
+
+{additionalInstructions}
+
+Please provide a translation that:
+1. Maintains the professional tone and business context
+2. Preserves all important details and technical terms
+3. Ensures cultural appropriateness
+4. Keeps the same level of formality
+5. Sign with Gabor
+
+Translation:`,
+
+  respond: `I received the following business email and need to generate a professional response:
+
+From: {sender}
+Subject: {subject}
+
+{additionalInstructions}
+
+Email Content:
+{content}
 
 Please generate a professional, helpful response that:
 1. Addresses the sender's request appropriately
@@ -146,52 +242,104 @@ Please generate a professional, helpful response that:
 4. Includes appropriate greetings and closing
 5. Sign with Gabor
 6. In case the request is in another language, please answer in the same language
-${instructions ? '7. Follows the specific instructions provided above' : ''}
+7. Follows any specific instructions provided above
 
-Response:`;
+Response:`
+};
+
+// Generate AI response with task-specific prompts
+async function generateResponse(emailContent, sender, subject, instructions) {
+  try {
+    const task = detectTask(instructions);
+    console.log(`\n=== Detected Task: ${task} ===`);
+    
+    const template = promptTemplates[task];
+    const additionalInstructions = instructions ? `Additional Instructions:\n${instructions}\n\n` : '';
+    
+    const prompt = template
+      .replace('{sender}', sender)
+      .replace('{subject}', subject)
+      .replace('{content}', emailContent)
+      .replace('{additionalInstructions}', additionalInstructions);
+
+    console.log(`\n=== Using ${task} prompt template ===`);
+    console.log('Prompt preview:', prompt.substring(0, 200) + '...');
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
         {
           role: "system",
-          content: "You are a professional business assistant helping to draft email responses. Generate appropriate, professional responses to business emails."
+          content: `You are a professional business assistant helping with ${task} tasks. Generate appropriate, professional ${task} outputs for business emails.`
         },
         {
           role: "user",
           content: prompt
         }
       ],
-      max_tokens: 500,
+      max_tokens: 800, // Increased for more detailed outputs
       temperature: 0.7
     });
 
-    return completion.choices[0].message.content.trim();
+    const response = completion.choices[0].message.content.trim();
+    console.log(`\n=== Generated ${task} response ===`);
+    console.log(response.substring(0, 200) + '...');
+    
+    return response;
   } catch (error) {
     console.error('Error generating AI response:', error);
     return 'Error generating response. Please try again.';
   }
 }
 
-// Send email response
-async function sendResponse(to, subject, body, originalEmailId) {
+// Send email response with task-specific formatting
+async function sendResponse(to, subject, body, originalEmailId, task = 'respond') {
   try {
+    // Create task-specific subject lines
+    const subjectPrefixes = {
+      summarize: 'Summary:',
+      todos: 'Action Items:',
+      analyze: 'Analysis:',
+      translate: 'Translation:',
+      respond: 'Re:'
+    };
+    
+    const subjectPrefix = subjectPrefixes[task] || 'Re:';
+    const emailSubject = `${subjectPrefix} ${subject}`;
+    
+    // Create task-specific HTML formatting
+    const taskTitles = {
+      summarize: 'Email Summary',
+      todos: 'Action Items & Tasks',
+      analyze: 'Business Analysis',
+      translate: 'Email Translation',
+      respond: 'AI Generated Response'
+    };
+    
+    const taskTitle = taskTitles[task] || 'AI Generated Response';
+    
     const mailOptions = {
       from: process.env.GMAIL_ADDRESS,
       to: to,
-      subject: `Re: ${subject} - AI Generated Response`,
+      subject: emailSubject,
       html: `
-        <p><strong>AI Generated Response:</strong></p>
-        <div style="margin: 15px 0;">
-          ${body.replace(/\n/g, '<br>')}
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">
+            ${taskTitle}
+          </h2>
+          <div style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #3498db; margin: 15px 0;">
+            ${body.replace(/\n/g, '<br>')}
+          </div>
+          <hr style="border: none; border-top: 1px solid #ecf0f1; margin: 20px 0;">
+          <p style="color: #7f8c8d; font-size: 12px; font-style: italic;">
+            This ${task} was automatically generated by AI. Please review before using.
+          </p>
         </div>
-        <hr>
-        <p><em>This response was automatically generated. Please review before sending.</em></p>
       `
     };
 
     const result = await transporter.sendMail(mailOptions);
-    console.log('Response sent successfully:', result.messageId);
+    console.log(`${taskTitle} sent successfully:`, result.messageId);
     return result;
   } catch (error) {
     console.error('Error sending email:', error);
@@ -228,9 +376,19 @@ async function checkNewEmails() {
       const subject = headers.find(h => h.name === 'Subject')?.value || '';
       const from = headers.find(h => h.name === 'From')?.value || '';
       
-      // Only process emails from specific sender (case-insensitive)
-      if (!from.toLowerCase().includes('gabor.niederlaender@erstebank.at')) {
+      // Only process emails from specific senders (case-insensitive)
+      const authorizedSenders = [
+        'gabor.niederlaender@erstebank.at',
+        'gabor.niederlaender@gmx.at'
+      ];
+      
+      const isAuthorizedSender = authorizedSenders.some(sender => 
+        from.toLowerCase().includes(sender.toLowerCase())
+      );
+      
+      if (!isAuthorizedSender) {
         console.log(`Skipping email from: ${from} - not from authorized sender`);
+        console.log(`Authorized senders: ${authorizedSenders.join(', ')}`);
         
         // Mark as read even if skipped
         await gmail.users.messages.modify({
@@ -264,6 +422,11 @@ async function checkNewEmails() {
       console.log(`Processing email from: ${from}`);
       console.log(`Original sender: ${parsed.originalSender}`);
       console.log(`Original subject: ${parsed.originalSubject}`);
+      console.log(`Instructions: ${parsed.instructions}`);
+      
+      // Detect task type
+      const task = detectTask(parsed.instructions);
+      console.log(`Detected task type: ${task}`);
       
       // Generate AI response
       const aiResponse = await generateResponse(
@@ -273,12 +436,13 @@ async function checkNewEmails() {
         parsed.instructions
       );
       
-      // Send response back to the user
+      // Send response back to the user with task-specific formatting
       await sendResponse(
         process.env.YOUR_COMPANY_EMAIL, // Your company email
         parsed.originalSubject,
         aiResponse,
-        message.id
+        message.id,
+        task
       );
       
       // Mark as processed
