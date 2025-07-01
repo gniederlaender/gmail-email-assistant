@@ -170,8 +170,70 @@ function parseForwardedEmail(emailBody) {
   };
 }
 
-// Task detection function
+// Task detection function using XML-like tags
 function detectTask(instructions) {
+  // Look for task tag in format <t>task</t>
+  const taskTagMatch = instructions.match(/<t>(.*?)<\/t>/i);
+  
+  if (taskTagMatch) {
+    const task = taskTagMatch[1].toLowerCase().trim();
+    console.log(`\n=== Found Task Tag: ${task} ===`);
+    
+    // Map task names to our supported tasks
+    switch (task) {
+      case 'summarize':
+      case 'summary':
+      case 'zusammenfassen':
+      case 'zusammen':
+      case 'kurzfassung':
+      case 'resümee':
+        return 'summarize';
+        
+      case 'todo':
+      case 'todos':
+      case 'task':
+      case 'action':
+      case 'aufgabe':
+      case 'to-do':
+      case 'tätigkeit':
+      case 'maßnahme':
+      case 'aktion':
+        return 'todos';
+        
+      case 'analyze':
+      case 'analysis':
+      case 'analysiere':
+      case 'analyse':
+      case 'bewerten':
+      case 'beurteilen':
+        return 'analyze';
+        
+      case 'translate':
+      case 'translation':
+      case 'übersetze':
+      case 'übersetzung':
+      case 'übertragen':
+        return 'translate';
+        
+      case 'write':
+      case 'schreibe':
+      case 'verfasse':
+      case 'erstelle':
+        return 'write';
+        
+      case 'respond':
+      case 'reply':
+      case 'antworten':
+        return 'respond';
+        
+      default:
+        console.log(`\n=== Unknown task: ${task}, defaulting to respond ===`);
+        return 'respond';
+    }
+  }
+  
+  // Fallback to keyword detection if no task tag found
+  console.log('\n=== No task tag found, using keyword detection ===');
   const lowerInstructions = instructions.toLowerCase();
   
   if (lowerInstructions.includes('summarize') || lowerInstructions.includes('summary') || 
@@ -326,14 +388,23 @@ async function generateResponse(emailContent, sender, subject, instructions) {
     const task = detectTask(instructions);
     console.log(`\n=== Detected Task: ${task} ===`);
     
+    // Extract additional instructions by removing the task tag
+    let additionalInstructions = instructions;
+    if (instructions) {
+      // Remove the task tag and clean up
+      additionalInstructions = instructions.replace(/<t>.*?<\/t>/gi, '').trim();
+      // Remove any extra whitespace and empty lines
+      additionalInstructions = additionalInstructions.replace(/\n\s*\n/g, '\n').trim();
+    }
+    
     const template = promptTemplates[task];
-    const additionalInstructions = instructions ? `Additional Instructions:\n${instructions}\n\n` : '';
+    const instructionsText = additionalInstructions ? `Additional Instructions:\n${additionalInstructions}\n\n` : '';
     
     const prompt = template
       .replace('{sender}', sender)
       .replace('{subject}', subject)
       .replace('{content}', emailContent)
-      .replace('{additionalInstructions}', additionalInstructions);
+      .replace('{additionalInstructions}', instructionsText);
 
     console.log(`\n=== Using ${task} prompt template ===`);
     console.log('Prompt preview:', prompt.substring(0, 200) + '...');
